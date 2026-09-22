@@ -20,6 +20,11 @@ export default function Login() {
 
   return (
     <div style={{ padding: 24, maxWidth: 400, margin: '0 auto' }}>
+      <div style={{ textAlign: 'center', margin: '48px 0 36px' }}>
+        <div style={{ fontSize: 42, fontWeight: 900, letterSpacing: 2, color: '#1F1E1B' }}>ME:UP</div>
+        <div style={{ fontSize: 14, color: '#888', marginTop: 8 }}>목표를 달성하고 캐릭터를 키워보세요</div>
+      </div>
+
       <h2 style={{ marginBottom: 24 }}>{isSignUp ? '회원가입' : '로그인'}</h2>
       <input
         type="email"
