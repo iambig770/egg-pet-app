@@ -8,6 +8,7 @@ import Shop from './pages/Shop'
 import Party from './pages/Party'
 import Login from './pages/Login'
 import Profile from './pages/Profile'
+import Help from './pages/Help'
 import Attendance from './Attendance'
 
 function BottomNav() {
@@ -44,7 +45,8 @@ function TopBar() {
   const { pathname } = useLocation()
   const titles = {
     '/': '홈', '/goals': '목표', '/dex': '도감',
-    '/shop': '상점', '/party': '파티', '/profile': '내 정보'
+    '/shop': '상점', '/party': '파티',
+    '/profile': '내 정보', '/help': '사용법'
   }
   return (
     <div style={{
@@ -54,7 +56,10 @@ function TopBar() {
       padding: '0 20px', zIndex: 50
     }}>
       <span style={{ fontWeight: 700, fontSize: 16 }}>{titles[pathname] || ''}</span>
-      <Link to="/profile" style={{ textDecoration: 'none', fontSize: 22 }}>👤</Link>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <Link to="/help" style={{ textDecoration: 'none', fontSize: 22 }}>❓</Link>
+        <Link to="/profile" style={{ textDecoration: 'none', fontSize: 22 }}>👤</Link>
+      </div>
     </div>
   )
 }
@@ -120,6 +125,7 @@ export default function App() {
           <Route path="/shop" element={<Shop />} />
           <Route path="/party" element={<Party />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/help" element={<Help />} />
         </Routes>
       </div>
       <BottomNav />
