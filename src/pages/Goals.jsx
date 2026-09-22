@@ -67,6 +67,9 @@ export default function Goals() {
 
   const isDone = (goalId) => logs.some(l => l.goal_id === goalId)
 
+  const undoneGoals = goals.filter(g => !isDone(g.id))
+  const doneGoals = goals.filter(g => isDone(g.id))
+
   return (
     <div style={{ padding: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -104,7 +107,7 @@ export default function Goals() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {goals.map(goal => (
+        {undoneGoals.map(goal => (
           <div
             key={goal.id}
             onClick={() => toggleGoal(goal)}
@@ -116,20 +119,45 @@ export default function Goals() {
           >
             <div style={{
               width: 24, height: 24, borderRadius: 7, flexShrink: 0,
-              background: isDone(goal.id) ? '#2F6B5A' : '#fff',
-              border: isDone(goal.id) ? 'none' : '2px solid #ccc',
+              background: '#fff', border: '2px solid #ccc',
+              display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }} />
+            <span style={{ fontSize: 15, flex: 1 }}>{goal.title}</span>
+            <span style={{ fontSize: 12, color: '#aaa' }}>+10</span>
+          </div>
+        ))}
+
+        {doneGoals.length > 0 && (
+          <div style={{ margin: '8px 0 4px', fontSize: 12, color: '#aaa', fontWeight: 600 }}>
+            완료한 목표
+          </div>
+        )}
+
+        {doneGoals.map(goal => (
+          <div
+            key={goal.id}
+            onClick={() => toggleGoal(goal)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '12px 14px', background: '#F5F3EE',
+              border: '1px solid #E8E4DC', borderRadius: 12, cursor: 'pointer',
+              opacity: 0.7
+            }}
+          >
+            <div style={{
+              width: 24, height: 24, borderRadius: 7, flexShrink: 0,
+              background: '#2F6B5A', border: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center'
             }}>
-              {isDone(goal.id) && <span style={{ color: '#fff', fontSize: 14 }}>✓</span>}
+              <span style={{ color: '#fff', fontSize: 14 }}>✓</span>
             </div>
             <span style={{
-              fontSize: 15, flex: 1,
-              color: isDone(goal.id) ? '#aaa' : '#1F1E1B',
-              textDecoration: isDone(goal.id) ? 'line-through' : 'none'
+              fontSize: 15, flex: 1, color: '#aaa',
+              textDecoration: 'line-through'
             }}>
               {goal.title}
             </span>
-            <span style={{ fontSize: 12, color: '#aaa' }}>+10</span>
+            <span style={{ fontSize: 12, color: '#ccc' }}>완료</span>
           </div>
         ))}
       </div>

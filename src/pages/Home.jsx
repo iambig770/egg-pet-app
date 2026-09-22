@@ -59,6 +59,7 @@ export default function Home() {
   const sellCharacter = async () => {
     if (!current) return
     if (current.stage >= 3) return alert('3단계 완성 캐릭터는 판매할 수 없습니다')
+    if (characters.length <= 1) return alert('마지막 캐릭터는 판매할 수 없습니다')
     const price = STAGE_SELL[current.stage]
     if (!window.confirm(`"${current.characters?.name}" 을 ${price}코인에 판매할까요?`)) return
     await supabase.from('user_characters').delete().eq('id', current.id)
@@ -118,8 +119,6 @@ export default function Home() {
 
   return (
     <div style={{ padding: 20 }}>
-
-      {/* 연속 기록 */}
       {userData.streak > 0 && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
@@ -223,11 +222,15 @@ export default function Home() {
                 </button>
                 <button
                   onClick={sellCharacter}
+                  disabled={characters.length <= 1}
                   style={{
                     padding: '14px 16px',
-                    background: '#fff', color: '#e74c3c',
-                    border: '1px solid #e74c3c', borderRadius: 12,
-                    fontWeight: 700, fontSize: 13, cursor: 'pointer'
+                    background: '#fff',
+                    color: characters.length <= 1 ? '#ccc' : '#e74c3c',
+                    border: `1px solid ${characters.length <= 1 ? '#ccc' : '#e74c3c'}`,
+                    borderRadius: 12,
+                    fontWeight: 700, fontSize: 13,
+                    cursor: characters.length <= 1 ? 'default' : 'pointer'
                   }}
                 >
                   판매{'\n'}{STAGE_SELL[current.stage]}
