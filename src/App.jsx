@@ -95,12 +95,22 @@ export default function App() {
       .single()
     setUserData(u)
 
-    const { count } = await supabase
-      .from('attendance_logs')
-      .select('id', { count: 'exact' })
-      .eq('user_id', u.id)
+    const today = new Date().toISOString().split('T')[0]
 
-    if (count < 7) setShowAttendance(true)
+    const { data: logs } = await supabase
+      .from('attendance_logs')
+      .select('day, claimed_date')
+      .eq('user_id', u.id)
+      .order('day')
+
+    const totalClaimed = logs?.length || 0
+    const claimedToday = logs?.some(l => l.claimed_date === today) || false
+
+    if (totalClaimed < 7 && !claimedToday) {
+      setShowAttendance(true)
+    } else {
+      setShowAttendance(false)
+    }
   }
 
   if (loading) return <div style={{ padding: 24 }}>로딩 중...</div>
