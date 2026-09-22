@@ -7,6 +7,7 @@ import Dex from './pages/Dex'
 import Shop from './pages/Shop'
 import Party from './pages/Party'
 import Login from './pages/Login'
+import Profile from './pages/Profile'
 import Attendance from './Attendance'
 
 function BottomNav() {
@@ -36,6 +37,25 @@ function BottomNav() {
         </Link>
       ))}
     </nav>
+  )
+}
+
+function TopBar() {
+  const { pathname } = useLocation()
+  const titles = {
+    '/': '홈', '/goals': '목표', '/dex': '도감',
+    '/shop': '상점', '/party': '파티', '/profile': '내 정보'
+  }
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0,
+      height: 52, background: '#fff', borderBottom: '1px solid #ddd',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '0 20px', zIndex: 50
+    }}>
+      <span style={{ fontWeight: 700, fontSize: 16 }}>{titles[pathname] || ''}</span>
+      <Link to="/profile" style={{ textDecoration: 'none', fontSize: 22 }}>👤</Link>
+    </div>
   )
 }
 
@@ -83,6 +103,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <TopBar />
       {showAttendance && userData && (
         <Attendance
           userId={userData.id}
@@ -91,13 +112,14 @@ export default function App() {
           onReward={fetchUserAndCheckAttendance}
         />
       )}
-      <div style={{ paddingBottom: 60 }}>
+      <div style={{ paddingBottom: 60, paddingTop: 52 }}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/goals" element={<Goals />} />
           <Route path="/dex" element={<Dex />} />
           <Route path="/shop" element={<Shop />} />
           <Route path="/party" element={<Party />} />
+          <Route path="/profile" element={<Profile />} />
         </Routes>
       </div>
       <BottomNav />
