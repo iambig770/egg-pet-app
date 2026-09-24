@@ -8,6 +8,7 @@ export default function Goals() {
   const [userId, setUserId] = useState(null)
   const [showCalendar, setShowCalendar] = useState(false)
   const [calUrl, setCalUrl] = useState('')
+  const [savedCalUrl, setSavedCalUrl] = useState('')
   const [calLoading, setCalLoading] = useState(false)
   const today = new Date().toISOString().split('T')[0]
 
@@ -16,11 +17,12 @@ export default function Goals() {
       if (user) {
         const { data } = await supabase
           .from('users')
-          .select('id')
+          .select('id, calendar_url')
           .eq('auth_id', user.id)
           .single()
         if (data) {
           setUserId(data.id)
+          if (data.calendar_url) setSavedCalUrl(data.calendar_url)
           fetchGoals()
           fetchLogs()
         }
@@ -76,33 +78,44 @@ export default function Goals() {
     await supabase.from('goals').delete().in('id', goals.map(g => g.id))
   }
 
-  const importCalendar = async () => {
-    if (!calUrl.trim()) return
+  const parseICS = (icsText, targetDate) => {
+    const events = []
+    const lines = icsText.replace(/\r\n /g, '').replace(/\r\n\t/g, '').split(/\r\n|\n/)
+    let inEvent = false
+    let summary = ''
+    let dtstart = ''
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed === 'BEGIN:VEVENT') { inEvent = true; summary = ''; dtstart = '' }
+      if (trimmed === 'END:VEVENT') {
+        if (inEvent && summary && dtstart.replace(/[^0-9]/g, '').startsWith(targetDate.replace(/-/g, ''))) {
+          events.push(summary)
+        }
+        inEvent = false
+      }
+      if (inEvent) {
+        if (trimmed.startsWith('SUMMARY:')) summary = trimmed.replace('SUMMARY:', '').trim()
+        if (trimmed.startsWith('DTSTART')) dtstart = trimmed
+      }
+    }
+    return events
+  }
+
+  const importCalendar = async (urlToUse) => {
+    const url = urlToUse || calUrl
+    if (!url.trim()) return
     setCalLoading(true)
     try {
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(calUrl)}`
+      if (!savedCalUrl || savedCalUrl !== url) {
+        await supabase.from('users').update({ calendar_url: url }).eq('id', userId)
+        setSavedCalUrl(url)
+      }
+
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`
       const res = await fetch(proxyUrl)
       const icsText = await res.text()
-
-      const todayStr = today.replace(/-/g, '')
-      const events = []
-      const lines = icsText.split('\n')
-      let inEvent = false
-      let summary = ''
-      let dtstart = ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed === 'BEGIN:VEVENT') { inEvent = true; summary = ''; dtstart = '' }
-        if (trimmed === 'END:VEVENT') {
-          if (inEvent && summary && dtstart.includes(todayStr)) events.push(summary)
-          inEvent = false
-        }
-        if (inEvent) {
-          if (trimmed.startsWith('SUMMARY:')) summary = trimmed.replace('SUMMARY:', '').trim()
-          if (trimmed.startsWith('DTSTART')) dtstart = trimmed
-        }
-      }
+      const events = parseICS(icsText, today)
 
       if (events.length === 0) {
         alert('오늘 일정이 없습니다.')
@@ -135,9 +148,15 @@ export default function Goals() {
           오늘 목표 <span style={{ color: '#2F6B5A' }}>{logs.length}</span> / {goals.length}
         </h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowCalendar(true)} style={{ padding: '6px 12px', background: '#fff', color: '#2F6B5A', border: '1px solid #2F6B5A', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-            📅 캘린더
-          </button>
+          {savedCalUrl ? (
+            <button onClick={() => importCalendar(savedCalUrl)} disabled={calLoading} style={{ padding: '6px 12px', background: '#2F6B5A', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              {calLoading ? '가져오는 중...' : '📅 오늘 일정'}
+            </button>
+          ) : (
+            <button onClick={() => setShowCalendar(true)} style={{ padding: '6px 12px', background: '#fff', color: '#2F6B5A', border: '1px solid #2F6B5A', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              📅 캘린더 연동
+            </button>
+          )}
           {goals.length > 0 && (
             <button onClick={deleteAll} style={{ padding: '6px 12px', background: '#fff', color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
               전체 삭제
@@ -149,9 +168,9 @@ export default function Goals() {
       {showCalendar && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 380 }}>
-            <h3 style={{ margin: '0 0 8px' }}>📅 캘린더 가져오기</h3>
+            <h3 style={{ margin: '0 0 8px' }}>📅 캘린더 연동</h3>
             <p style={{ margin: '0 0 16px', fontSize: 13, color: '#888' }}>
-              구글 캘린더 또는 애플 캘린더의 ICS 구독 URL을 입력하세요. 오늘 일정을 목표로 추가합니다.
+              한 번 연동하면 다음부터는 버튼 하나로 오늘 일정을 가져옵니다.
             </p>
             <input
               value={calUrl}
@@ -159,8 +178,8 @@ export default function Goals() {
               placeholder="https://calendar.google.com/calendar/ical/..."
               style={{ width: '100%', padding: 12, border: '1px solid #ddd', borderRadius: 8, boxSizing: 'border-box', fontSize: 13, marginBottom: 12 }}
             />
-            <button onClick={importCalendar} disabled={calLoading} style={{ width: '100%', padding: 14, background: calLoading ? '#ccc' : '#2F6B5A', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: calLoading ? 'default' : 'pointer', marginBottom: 8 }}>
-              {calLoading ? '가져오는 중...' : '가져오기'}
+            <button onClick={() => importCalendar()} disabled={calLoading} style={{ width: '100%', padding: 14, background: calLoading ? '#ccc' : '#2F6B5A', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: calLoading ? 'default' : 'pointer', marginBottom: 8 }}>
+              {calLoading ? '연동 중...' : '연동하기'}
             </button>
             <button onClick={() => { setShowCalendar(false); setCalUrl('') }} style={{ width: '100%', padding: 12, background: 'none', border: 'none', color: '#888', fontSize: 14, cursor: 'pointer' }}>
               닫기
