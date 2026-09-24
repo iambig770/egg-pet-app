@@ -112,3 +112,12 @@ code {
 input, textarea, select {
   font-size: 16px !important;
 }
+* {
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+
+button {
+  -webkit-appearance: none;
+  appearance: none;
+}
