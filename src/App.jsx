@@ -127,7 +127,7 @@ export default function App() {
           onReward={fetchUserAndCheckAttendance}
         />
       )}
-      <div style={{ paddingBottom: 60, paddingTop: 52 }}>
+      <div style={{ paddingBottom: 60, paddingTop: 52 }} className="page-enter">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/goals" element={<Goals />} />
