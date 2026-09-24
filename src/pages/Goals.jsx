@@ -80,10 +80,9 @@ export default function Goals() {
     if (!calUrl.trim()) return
     setCalLoading(true)
     try {
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(calUrl)}`
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(calUrl)}`
       const res = await fetch(proxyUrl)
-      const json = await res.json()
-      const icsText = json.contents
+      const icsText = await res.text()
 
       const todayStr = today.replace(/-/g, '')
       const events = []
