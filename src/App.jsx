@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
+import { HashRouter as BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 import Home from './pages/Home'
