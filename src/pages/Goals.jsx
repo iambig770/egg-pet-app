@@ -117,7 +117,7 @@ export default function Goals() {
         setSavedCalUrl(url)
       }
 
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`
+      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
       const res = await fetch(proxyUrl)
       const icsText = await res.text()
       const events = parseICS(icsText, today)
