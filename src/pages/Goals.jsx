@@ -6,6 +6,9 @@ export default function Goals() {
   const [logs, setLogs] = useState([])
   const [newGoal, setNewGoal] = useState('')
   const [userId, setUserId] = useState(null)
+  const [showCalendar, setShowCalendar] = useState(false)
+  const [calUrl, setCalUrl] = useState('')
+  const [calLoading, setCalLoading] = useState(false)
   const today = new Date().toISOString().split('T')[0]
 
   useEffect(() => {
@@ -73,6 +76,55 @@ export default function Goals() {
     await supabase.from('goals').delete().in('id', goals.map(g => g.id))
   }
 
+  const importCalendar = async () => {
+    if (!calUrl.trim()) return
+    setCalLoading(true)
+    try {
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(calUrl)}`
+      const res = await fetch(proxyUrl)
+      const json = await res.json()
+      const icsText = json.contents
+
+      const todayStr = today.replace(/-/g, '')
+      const events = []
+      const lines = icsText.split('\n')
+      let inEvent = false
+      let summary = ''
+      let dtstart = ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed === 'BEGIN:VEVENT') { inEvent = true; summary = ''; dtstart = '' }
+        if (trimmed === 'END:VEVENT') {
+          if (inEvent && summary && dtstart.includes(todayStr)) events.push(summary)
+          inEvent = false
+        }
+        if (inEvent) {
+          if (trimmed.startsWith('SUMMARY:')) summary = trimmed.replace('SUMMARY:', '').trim()
+          if (trimmed.startsWith('DTSTART')) dtstart = trimmed
+        }
+      }
+
+      if (events.length === 0) {
+        alert('오늘 일정이 없습니다.')
+        setCalLoading(false)
+        return
+      }
+
+      for (const title of events) {
+        const { data } = await supabase.from('goals').insert({ user_id: userId, title }).select().single()
+        if (data) setGoals(prev => [...prev, data])
+      }
+
+      alert(`${events.length}개 일정을 목표로 추가했습니다!`)
+      setShowCalendar(false)
+      setCalUrl('')
+    } catch {
+      alert('캘린더를 가져오는 데 실패했습니다. URL을 확인해 주세요.')
+    }
+    setCalLoading(false)
+  }
+
   const isDone = (goalId) => logs.some(l => l.goal_id === goalId)
   const undoneGoals = goals.filter(g => !isDone(g.id))
   const doneGoals = goals.filter(g => isDone(g.id))
@@ -83,12 +135,40 @@ export default function Goals() {
         <h2 style={{ margin: 0 }}>
           오늘 목표 <span style={{ color: '#2F6B5A' }}>{logs.length}</span> / {goals.length}
         </h2>
-        {goals.length > 0 && (
-          <button onClick={deleteAll} style={{ padding: '6px 12px', background: '#fff', color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-            전체 삭제
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowCalendar(true)} style={{ padding: '6px 12px', background: '#fff', color: '#2F6B5A', border: '1px solid #2F6B5A', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            📅 캘린더
           </button>
-        )}
+          {goals.length > 0 && (
+            <button onClick={deleteAll} style={{ padding: '6px 12px', background: '#fff', color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              전체 삭제
+            </button>
+          )}
+        </div>
       </div>
+
+      {showCalendar && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 380 }}>
+            <h3 style={{ margin: '0 0 8px' }}>📅 캘린더 가져오기</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#888' }}>
+              구글 캘린더 또는 애플 캘린더의 ICS 구독 URL을 입력하세요. 오늘 일정을 목표로 추가합니다.
+            </p>
+            <input
+              value={calUrl}
+              onChange={e => setCalUrl(e.target.value)}
+              placeholder="https://calendar.google.com/calendar/ical/..."
+              style={{ width: '100%', padding: 12, border: '1px solid #ddd', borderRadius: 8, boxSizing: 'border-box', fontSize: 13, marginBottom: 12 }}
+            />
+            <button onClick={importCalendar} disabled={calLoading} style={{ width: '100%', padding: 14, background: calLoading ? '#ccc' : '#2F6B5A', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: calLoading ? 'default' : 'pointer', marginBottom: 8 }}>
+              {calLoading ? '가져오는 중...' : '가져오기'}
+            </button>
+            <button onClick={() => { setShowCalendar(false); setCalUrl('') }} style={{ width: '100%', padding: 12, background: 'none', border: 'none', color: '#888', fontSize: 14, cursor: 'pointer' }}>
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         <input
@@ -106,7 +186,7 @@ export default function Goals() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {undoneGoals.map(goal => (
           <div key={goal.id} onClick={() => toggleGoal(goal)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 12, cursor: 'pointer' }}>
-            <div style={{ width: 24, height: 24, borderRadius: 7, flexShrink: 0, background: '#fff', border: '2px solid #ccc', display: 'flex', alignItems: 'center', justifyContent: 'center' }} />
+            <div style={{ width: 24, height: 24, borderRadius: 7, flexShrink: 0, background: '#fff', border: '2px solid #ccc' }} />
             <span style={{ fontSize: 15, flex: 1 }}>{goal.title}</span>
             <span style={{ fontSize: 12, color: '#aaa' }}>+10</span>
           </div>
