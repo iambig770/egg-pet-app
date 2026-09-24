@@ -80,6 +80,10 @@ export default function Goals() {
 
   const parseICS = (icsText, targetDate) => {
     const events = []
+    const todayStr = targetDate.replace(/-/g, '')
+    console.log('ICS 원본:', icsText.slice(0, 500))
+    console.log('오늘 날짜:', todayStr)
+
     const lines = icsText.replace(/\r\n /g, '').replace(/\r\n\t/g, '').split(/\r\n|\n/)
     let inEvent = false
     let summary = ''
@@ -89,7 +93,8 @@ export default function Goals() {
       const trimmed = line.trim()
       if (trimmed === 'BEGIN:VEVENT') { inEvent = true; summary = ''; dtstart = '' }
       if (trimmed === 'END:VEVENT') {
-        if (inEvent && summary && dtstart.replace(/[^0-9]/g, '').startsWith(targetDate.replace(/-/g, ''))) {
+        console.log('이벤트:', summary, '날짜:', dtstart)
+        if (inEvent && summary && dtstart.replace(/[^0-9]/g, '').startsWith(todayStr)) {
           events.push(summary)
         }
         inEvent = false
@@ -131,7 +136,8 @@ export default function Goals() {
       alert(`${events.length}개 일정을 목표로 추가했습니다!`)
       setShowCalendar(false)
       setCalUrl('')
-    } catch {
+    } catch (e) {
+      console.error('캘린더 오류:', e)
       alert('캘린더를 가져오는 데 실패했습니다. URL을 확인해 주세요.')
     }
     setCalLoading(false)
