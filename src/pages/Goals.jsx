@@ -1,54 +1,84 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { useLang } from '../LangContext'
+
+const PERIODS = ['daily', 'weekly', 'monthly']
+const PERIOD_KO = { daily: '일간', weekly: '주간', monthly: '월간' }
+
+function getDateRange(period) {
+  const now = new Date()
+  const today = now.toLocaleDateString('en-CA')
+  if (period === 'daily') return { start: today, end: today }
+  if (period === 'weekly') {
+    const day = now.getDay()
+    const diff = (day === 0 ? -6 : 1) - day
+    const mon = new Date(now); mon.setDate(now.getDate() + diff)
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
+    return { start: mon.toLocaleDateString('en-CA'), end: sun.toLocaleDateString('en-CA') }
+  }
+  const start = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA')
+  const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString('en-CA')
+  return { start, end }
+}
 
 export default function Goals() {
-  const [goals, setGoals] = useState([])
-  const [logs, setLogs] = useState([])
-  const [newGoal, setNewGoal] = useState('')
-  const [userId, setUserId] = useState(null)
-  const [showCalendar, setShowCalendar] = useState(false)
-  const [calUrl, setCalUrl] = useState('')
+  const [period, setPeriod]         = useState('daily')
+  const [allGoals, setAllGoals]     = useState([])
+  const [logs, setLogs]             = useState([])
+  const [newGoal, setNewGoal]       = useState('')
+  const [userId, setUserId]         = useState(null)
+  const [calModal, setCalModal]     = useState(null)
+  const [calUrl, setCalUrl]         = useState('')
   const [savedCalUrl, setSavedCalUrl] = useState('')
   const [calLoading, setCalLoading] = useState(false)
-  const today = new Date().toISOString().split('T')[0]
+  const [calError, setCalError]     = useState('')
+  const [calEvents, setCalEvents]   = useState([])
+  const [picked, setPicked]         = useState([])
+  const { T } = useLang()
+  const today = new Date().toLocaleDateString('en-CA')
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (user) {
-        const { data } = await supabase
-          .from('users')
-          .select('id, calendar_url')
-          .eq('auth_id', user.id)
-          .single()
-        if (data) {
-          setUserId(data.id)
-          if (data.calendar_url) setSavedCalUrl(data.calendar_url)
-          fetchGoals()
-          fetchLogs()
-        }
+      if (!user) return
+      const { data } = await supabase.from('users').select('id, calendar_url').eq('auth_id', user.id).single()
+      if (data) {
+        setUserId(data.id)
+        if (data.calendar_url) setSavedCalUrl(data.calendar_url)
       }
     })
   }, [])
 
+  useEffect(() => {
+    if (userId) { fetchGoals(); fetchLogs() }
+  }, [userId])
+
+  useEffect(() => {
+    if (userId) fetchLogs()
+  }, [period, userId])
+
   const fetchGoals = async () => {
-    const { data } = await supabase.from('goals').select('*').order('created_at')
-    setGoals(data || [])
+    const { data } = await supabase.from('goals').select('*').eq('user_id', userId).order('created_at')
+    setAllGoals(data || [])
   }
 
   const fetchLogs = async () => {
-    const { data } = await supabase.from('goal_logs').select('*').eq('achieved_date', today)
+    const { start, end } = getDateRange(period)
+    const { data } = await supabase
+      .from('goal_logs').select('*').eq('user_id', userId)
+      .gte('achieved_date', start).lte('achieved_date', end)
     setLogs(data || [])
   }
+
+  const goals = allGoals.filter(g => (g.period || 'daily') === period)
 
   const addGoal = async () => {
     if (!newGoal.trim()) return
     const tempId = 'temp-' + Date.now()
-    const tempGoal = { id: tempId, title: newGoal, user_id: userId, created_at: new Date().toISOString() }
-    setGoals(prev => [...prev, tempGoal])
+    setAllGoals(prev => [...prev, { id: tempId, title: newGoal, user_id: userId, period, created_at: new Date().toISOString() }])
     setNewGoal('')
-    const { data } = await supabase.from('goals').insert({ user_id: userId, title: tempGoal.title }).select().single()
-    if (data) setGoals(prev => prev.map(g => g.id === tempId ? data : g))
-    else setGoals(prev => prev.filter(g => g.id !== tempId))
+    const { data } = await supabase.from('goals').insert({ user_id: userId, title: newGoal, period }).select().single()
+    if (data) setAllGoals(prev => prev.map(g => g.id === tempId ? data : g))
+    else setAllGoals(prev => prev.filter(g => g.id !== tempId))
   }
 
   const toggleGoal = async (goal) => {
@@ -58,13 +88,11 @@ export default function Goals() {
       await supabase.from('goal_logs').delete().eq('id', done.id)
       await supabase.rpc('add_reward', { uid: userId, amount: -10 })
     } else {
-      const tempLog = { id: 'temp-' + Date.now(), goal_id: goal.id, user_id: userId, achieved_date: today }
-      setLogs(prev => [...prev, tempLog])
-      const { data } = await supabase.from('goal_logs').insert({
-        goal_id: goal.id, user_id: userId, achieved_date: today
-      }).select().single()
-      if (data) setLogs(prev => prev.map(l => l.id === tempLog.id ? data : l))
-      else setLogs(prev => prev.filter(l => l.id !== tempLog.id))
+      const tmp = { id: 'tmp-' + Date.now(), goal_id: goal.id, user_id: userId, achieved_date: today }
+      setLogs(prev => [...prev, tmp])
+      const { data } = await supabase.from('goal_logs').insert({ goal_id: goal.id, user_id: userId, achieved_date: today }).select().single()
+      if (data) setLogs(prev => prev.map(l => l.id === tmp.id ? data : l))
+      else setLogs(prev => prev.filter(l => l.id !== tmp.id))
       await supabase.rpc('add_reward', { uid: userId, amount: 10 })
       await supabase.rpc('update_streak', { uid: userId })
       await supabase.rpc('update_party_achievement', { uid: userId })
@@ -72,164 +100,246 @@ export default function Goals() {
   }
 
   const deleteAll = async () => {
-    if (!window.confirm(`목표 ${goals.length}개를 전부 삭제할까요?`)) return
-    setGoals([])
-    setLogs([])
+    if (!window.confirm(T.delete_all_confirm(goals.length))) return
+    setAllGoals(prev => prev.filter(g => (g.period || 'daily') !== period))
     await supabase.from('goals').delete().in('id', goals.map(g => g.id))
   }
 
-  const parseICS = (icsText, targetDate) => {
-    const events = []
-    const todayStr = targetDate.replace(/-/g, '')
-    console.log('ICS 원본:', icsText.slice(0, 500))
-    console.log('오늘 날짜:', todayStr)
+  const openUrlModal = () => { setCalUrl(savedCalUrl); setCalError(''); setCalModal('url') }
 
-    const lines = icsText.replace(/\r\n /g, '').replace(/\r\n\t/g, '').split(/\r\n|\n/)
-    let inEvent = false
-    let summary = ''
-    let dtstart = ''
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed === 'BEGIN:VEVENT') { inEvent = true; summary = ''; dtstart = '' }
-      if (trimmed === 'END:VEVENT') {
-        console.log('이벤트:', summary, '날짜:', dtstart)
-        if (inEvent && summary && dtstart.replace(/[^0-9]/g, '').startsWith(todayStr)) {
-          events.push(summary)
-        }
-        inEvent = false
-      }
-      if (inEvent) {
-        if (trimmed.startsWith('SUMMARY:')) summary = trimmed.replace('SUMMARY:', '').trim()
-        if (trimmed.startsWith('DTSTART')) dtstart = trimmed
-      }
-    }
-    return events
-  }
-
-  const importCalendar = async (urlToUse) => {
-    const url = urlToUse || calUrl
-    if (!url.trim()) return
-    setCalLoading(true)
-    try {
-      if (!savedCalUrl || savedCalUrl !== url) {
-        await supabase.from('users').update({ calendar_url: url }).eq('id', userId)
-        setSavedCalUrl(url)
-      }
-
-      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
-      const res = await fetch(proxyUrl)
-      const icsText = await res.text()
-      const events = parseICS(icsText, today)
-
-      if (events.length === 0) {
-        alert('오늘 일정이 없습니다.')
-        setCalLoading(false)
-        return
-      }
-
-      for (const title of events) {
-        const { data } = await supabase.from('goals').insert({ user_id: userId, title }).select().single()
-        if (data) setGoals(prev => [...prev, data])
-      }
-
-      alert(`${events.length}개 일정을 목표로 추가했습니다!`)
-      setShowCalendar(false)
-      setCalUrl('')
-    } catch (e) {
-      console.error('캘린더 오류:', e)
-      alert('캘린더를 가져오는 데 실패했습니다. URL을 확인해 주세요.')
-    }
+  const importCalendar = async (url) => {
+    const cleanUrl = (url || '').trim()
+    if (!cleanUrl) return
+    setCalLoading(true); setCalError('')
+    const now = new Date()
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const end = new Date(start.getTime() + 86399999)
+    const { data, error } = await supabase.functions.invoke('fetch-calendar', {
+      body: { url: cleanUrl, start: start.toISOString(), end: end.toISOString() }
+    })
     setCalLoading(false)
+    if (error || !data?.events) { setCalUrl(cleanUrl); setCalError(T.cal_error); setCalModal('url'); return }
+    if (cleanUrl !== savedCalUrl) {
+      await supabase.from('users').update({ calendar_url: cleanUrl }).eq('id', userId)
+      setSavedCalUrl(cleanUrl)
+    }
+    if (data.events.length === 0) { alert(T.cal_empty); setCalModal(null); return }
+    const titles = [...new Set(data.events.map(e => e.title))]
+    setCalEvents(titles)
+    setPicked(titles.filter(t => !goals.map(g => g.title).includes(t)))
+    setCalModal('pick')
   }
 
-  const isDone = (goalId) => logs.some(l => l.goal_id === goalId)
-  const undoneGoals = goals.filter(g => !isDone(g.id))
-  const doneGoals = goals.filter(g => isDone(g.id))
+  const addPicked = async () => {
+    if (picked.length === 0) { setCalModal(null); return }
+    const { data } = await supabase.from('goals').insert(picked.map(title => ({ user_id: userId, title, period }))).select()
+    if (data) setAllGoals(prev => [...prev, ...data])
+    setCalModal(null)
+  }
+
+  const isDone = (id) => logs.some(l => l.goal_id === id)
+  const undone = goals.filter(g => !isDone(g.id))
+  const done   = goals.filter(g =>  isDone(g.id))
+  const S = { padding: '0 20px' }
 
   return (
-    <div style={{ padding: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>
-          오늘 목표 <span style={{ color: '#2F6B5A' }}>{logs.length}</span> / {goals.length}
-        </h2>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {savedCalUrl ? (
-            <button onClick={() => importCalendar(savedCalUrl)} disabled={calLoading} style={{ padding: '6px 12px', background: '#2F6B5A', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              {calLoading ? '가져오는 중...' : '📅 오늘 일정'}
-            </button>
-          ) : (
-            <button onClick={() => setShowCalendar(true)} style={{ padding: '6px 12px', background: '#fff', color: '#2F6B5A', border: '1px solid #2F6B5A', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              📅 캘린더 연동
-            </button>
+    <div style={{ paddingBottom: 24 }}>
+
+      {/* ── 기간 탭 ── */}
+      <div style={{ display: 'flex', gap: 6, padding: '12px 20px 0' }}>
+        {PERIODS.map(p => (
+          <button key={p} onClick={() => setPeriod(p)} style={{
+            flex: 1, padding: '9px 0',
+            background: period === p ? 'var(--accent)' : 'var(--input-bg)',
+            border: 'none', borderRadius: 100,
+            color: period === p ? '#fff' : 'var(--t3)',
+            fontWeight: 600, fontSize: 13, cursor: 'pointer',
+            fontFamily: 'var(--font)',
+            transition: 'all 0.15s',
+          }}>
+            {PERIOD_KO[p]}
+          </button>
+        ))}
+      </div>
+
+      {/* ── 헤더 + 액션 버튼 ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px 0' }}>
+        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>{PERIOD_KO[period]} 목표</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {period === 'daily' && (
+            savedCalUrl
+              ? <>
+                  <button onClick={() => importCalendar(savedCalUrl)} disabled={calLoading}
+                    style={{ padding: '6px 10px', background: 'var(--card)', border: '1px solid var(--input-bg)', borderRadius: 10, fontSize: 11, fontWeight: 600, color: 'var(--t2)', cursor: 'pointer', fontFamily: 'var(--font)' }}>
+                    {calLoading ? T.cal_loading : '📅 ' + T.cal_today}
+                  </button>
+                  <button onClick={openUrlModal}
+                    style={{ padding: '6px 8px', background: 'var(--card)', border: '1px solid var(--input-bg)', borderRadius: 10, fontSize: 11, fontWeight: 600, color: 'var(--t3)', cursor: 'pointer', fontFamily: 'var(--font)' }}>
+                    {T.cal_change}
+                  </button>
+                </>
+              : <button onClick={openUrlModal}
+                  style={{ padding: '6px 10px', background: 'var(--card)', border: '1px solid var(--input-bg)', borderRadius: 10, fontSize: 11, fontWeight: 600, color: 'var(--t2)', cursor: 'pointer', fontFamily: 'var(--font)' }}>
+                  📅 {T.cal_connect}
+                </button>
           )}
           {goals.length > 0 && (
-            <button onClick={deleteAll} style={{ padding: '6px 12px', background: '#fff', color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              전체 삭제
+            <button onClick={deleteAll}
+              style={{ padding: '6px 8px', background: 'var(--card)', border: '1px solid var(--input-bg)', borderRadius: 10, fontSize: 11, fontWeight: 600, color: 'var(--red)', cursor: 'pointer', fontFamily: 'var(--font)' }}>
+              {T.delete_all}
             </button>
           )}
         </div>
       </div>
 
-      {showCalendar && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 380 }}>
-            <h3 style={{ margin: '0 0 8px' }}>📅 캘린더 연동</h3>
-            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#888' }}>
-              한 번 연동하면 다음부터는 버튼 하나로 오늘 일정을 가져옵니다.
-            </p>
-            <input
-              value={calUrl}
-              onChange={e => setCalUrl(e.target.value)}
-              placeholder="https://calendar.google.com/calendar/ical/..."
-              style={{ width: '100%', padding: 12, border: '1px solid #ddd', borderRadius: 8, boxSizing: 'border-box', fontSize: 13, marginBottom: 12 }}
-            />
-            <button onClick={() => importCalendar()} disabled={calLoading} style={{ width: '100%', padding: 14, background: calLoading ? '#ccc' : '#2F6B5A', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: calLoading ? 'default' : 'pointer', marginBottom: 8 }}>
-              {calLoading ? '연동 중...' : '연동하기'}
+      {/* ── 진행 카드 ── */}
+      {goals.length > 0 && (
+        <div style={{
+          margin: '14px 20px 0',
+          background: 'linear-gradient(135deg, var(--accent), #5A90F0)',
+          borderRadius: 20, padding: '18px 20px', color: '#fff',
+        }}>
+          <div style={{ fontSize: 12, opacity: 0.85 }}>달성 현황</div>
+          <div style={{ fontSize: 26, fontWeight: 700, margin: '6px 0 12px' }}>
+            {done.length} / {goals.length} 완료
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.25)', borderRadius: 100, height: 6 }}>
+            <div style={{
+              width: `${goals.length > 0 ? (done.length / goals.length) * 100 : 0}%`,
+              height: 6, borderRadius: 100, background: '#fff', transition: 'width 0.3s',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* ── 입력 ── */}
+      <div style={{
+        margin: '12px 20px 0',
+        background: 'var(--card)', borderRadius: 16,
+        padding: '4px 4px 4px 16px',
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        <input
+          type="text"
+          placeholder={T.add_goal}
+          value={newGoal}
+          onChange={e => setNewGoal(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && addGoal()}
+          style={{
+            flex: 1, border: 'none', background: 'none',
+            fontSize: 15, color: 'var(--t1)', outline: 'none',
+            padding: '10px 0', fontFamily: 'var(--font)',
+          }}
+        />
+        <button onClick={addGoal} style={{
+          background: 'var(--accent)', color: '#fff', border: 'none',
+          borderRadius: 12, width: 38, height: 38,
+          fontSize: 22, cursor: 'pointer', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}>+</button>
+      </div>
+
+      {/* ── 빈 상태 ── */}
+      {goals.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--t3)' }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>📋</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{T.add_goal}</div>
+        </div>
+      )}
+
+      {/* ── 미완료 목표 ── */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 20px 0' }}>
+        {undone.map(goal => (
+          <div key={goal.id} onClick={() => toggleGoal(goal)} style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '14px 16px', background: 'var(--card)',
+            borderRadius: 16, cursor: 'pointer',
+          }}>
+            <div style={{
+              width: 22, height: 22, borderRadius: '50%',
+              border: '2px solid var(--input-bg)', flexShrink: 0,
+            }} />
+            <span style={{ flex: 1, fontSize: 15, color: 'var(--t1)' }}>{goal.title}</span>
+            <span style={{ fontSize: 12, color: 'var(--t3)' }}>+10</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ── 완료 목표 ── */}
+      {done.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 20px 0' }}>
+          {done.map(goal => (
+            <div key={goal.id} onClick={() => toggleGoal(goal)} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '14px 16px', background: 'var(--card)',
+              borderRadius: 16, cursor: 'pointer', opacity: 0.55,
+            }}>
+              <div style={{
+                width: 22, height: 22, borderRadius: '50%',
+                background: 'var(--accent)', border: '2px solid var(--accent)',
+                flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontSize: 13,
+              }}>✓</div>
+              <span style={{ flex: 1, fontSize: 15, color: 'var(--t2)', textDecoration: 'line-through' }}>{goal.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── 캘린더 URL 모달 ── */}
+      {calModal === 'url' && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.40)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: 'var(--card)', borderRadius: '24px 24px 0 0', padding: 24, width: '100%', maxWidth: 430 }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 17, color: 'var(--t1)' }}>📅 {T.cal_modal_title}</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--t3)', lineHeight: 1.6 }}>{T.cal_modal_desc}</p>
+            {calError && <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--red)' }}>{calError}</p>}
+            <input value={calUrl} onChange={e => setCalUrl(e.target.value)} placeholder={T.cal_placeholder}
+              style={{ width: '100%', padding: '14px 16px', background: 'var(--input-bg)', border: 'none', borderRadius: 12, fontSize: 14, marginBottom: 12, boxSizing: 'border-box', fontFamily: 'var(--font)', color: 'var(--t1)', outline: 'none' }} />
+            <button onClick={() => importCalendar(calUrl)} disabled={calLoading}
+              style={{ width: '100%', padding: 14, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 14, fontWeight: 600, fontSize: 15, cursor: 'pointer', marginBottom: 8, fontFamily: 'var(--font)' }}>
+              {calLoading ? T.cal_connecting : T.cal_do_connect}
             </button>
-            <button onClick={() => { setShowCalendar(false); setCalUrl('') }} style={{ width: '100%', padding: 12, background: 'none', border: 'none', color: '#888', fontSize: 14, cursor: 'pointer' }}>
-              닫기
+            <button onClick={() => setCalModal(null)}
+              style={{ width: '100%', padding: 14, background: 'var(--input-bg)', color: 'var(--t2)', border: 'none', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'var(--font)' }}>
+              {T.close}
             </button>
           </div>
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        <input
-          value={newGoal}
-          onChange={e => setNewGoal(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && addGoal()}
-          placeholder="새 목표 입력"
-          style={{ flex: 1, padding: 10, border: '1px solid #ddd', borderRadius: 8, fontSize: 16 }}
-        />
-        <button onClick={addGoal} style={{ padding: '10px 16px', background: '#2F6B5A', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700 }}>
-          추가
-        </button>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {undoneGoals.map(goal => (
-          <div key={goal.id} onClick={() => toggleGoal(goal)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 12, cursor: 'pointer' }}>
-            <div style={{ width: 24, height: 24, borderRadius: 7, flexShrink: 0, background: '#fff', border: '2px solid #ccc' }} />
-            <span style={{ fontSize: 15, flex: 1 }}>{goal.title}</span>
-            <span style={{ fontSize: 12, color: '#aaa' }}>+10</span>
-          </div>
-        ))}
-
-        {doneGoals.length > 0 && (
-          <div style={{ margin: '8px 0 4px', fontSize: 12, color: '#aaa', fontWeight: 600 }}>완료한 목표</div>
-        )}
-
-        {doneGoals.map(goal => (
-          <div key={goal.id} onClick={() => toggleGoal(goal)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: '#F5F3EE', border: '1px solid #E8E4DC', borderRadius: 12, cursor: 'pointer', opacity: 0.7 }}>
-            <div style={{ width: 24, height: 24, borderRadius: 7, flexShrink: 0, background: '#2F6B5A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ color: '#fff', fontSize: 14 }}>✓</span>
+      {/* ── 캘린더 선택 모달 ── */}
+      {calModal === 'pick' && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.40)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: 'var(--card)', borderRadius: '24px 24px 0 0', padding: 24, width: '100%', maxWidth: 430, maxHeight: '80dvh', overflowY: 'auto' }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 17, color: 'var(--t1)' }}>{T.cal_pick_title}</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--t3)', lineHeight: 1.6 }}>{T.cal_pick_desc}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {calEvents.map(title => {
+                const checked = picked.includes(title)
+                const already = goals.map(g => g.title).includes(title)
+                return (
+                  <div key={title} onClick={() => setPicked(prev => checked ? prev.filter(t => t !== title) : [...prev, title])}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: checked ? '#EEF4FF' : 'var(--input-bg)', border: `1.5px solid ${checked ? 'var(--accent)' : 'transparent'}`, borderRadius: 14, cursor: 'pointer' }}>
+                    <div style={{ width: 20, height: 20, borderRadius: '50%', background: checked ? 'var(--accent)' : 'transparent', border: `2px solid ${checked ? 'var(--accent)' : 'var(--t3)'}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {checked && <span style={{ color: '#fff', fontSize: 12 }}>✓</span>}
+                    </div>
+                    <span style={{ flex: 1, fontSize: 14, color: 'var(--t1)' }}>{title}</span>
+                    {already && <span style={{ fontSize: 11, color: 'var(--t3)' }}>{T.cal_already}</span>}
+                  </div>
+                )
+              })}
             </div>
-            <span style={{ fontSize: 15, flex: 1, color: '#aaa', textDecoration: 'line-through' }}>{goal.title}</span>
-            <span style={{ fontSize: 12, color: '#ccc' }}>완료</span>
+            <button onClick={addPicked}
+              style={{ width: '100%', padding: 14, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 14, fontWeight: 600, fontSize: 15, cursor: 'pointer', marginBottom: 8, fontFamily: 'var(--font)' }}>
+              {T.cal_add(picked.length)}
+            </button>
+            <button onClick={() => setCalModal(null)}
+              style={{ width: '100%', padding: 14, background: 'var(--input-bg)', color: 'var(--t2)', border: 'none', borderRadius: 14, fontSize: 14, cursor: 'pointer', fontFamily: 'var(--font)' }}>
+              {T.close}
+            </button>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
